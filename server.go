@@ -150,8 +150,8 @@ func setupS3() *s3.S3 {
 func main() {
 	port := flag.Int("port", 9000, "port to listen on")
 	flag.Parse()
-	serveStr := fmt.Sprintf(":%d", port)
-
+	serveStr := fmt.Sprintf(":%v", *port)
+	log.Printf("Serving at localhost%v", serveStr)
 	svc := setupS3()
 	pfx := "/pottery-log-images/"
 	http.HandleFunc(pfx+"upload", Upload(svc))
