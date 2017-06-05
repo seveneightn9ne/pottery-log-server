@@ -72,7 +72,7 @@ func Upload(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
 		params := &s3.PutObjectInput{
 			Bucket:       aws.String(bucketName), // Required
 			Key:          aws.String(fileName),   // Required
-			ACL:          aws.String("ObjectCannedACL"),
+			ACL:          aws.String("public-read"),
 			Body:         bytes.NewReader(imageData),
 			CacheControl: aws.String("max-age=31556926"), // cachable forever
 			ContentType:  aws.String(imageFileHeader.Header.Get("Content-Type")),
@@ -109,11 +109,11 @@ func Upload(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
 
 		url := fmt.Sprintf("https://%s.s3.amazonaws.com/%s", bucketName, fileName)
 		writeJson(w, struct {
-			status string
-			uri    string
+			Status string `json:"status"`
+			Uri    string `json:"uri"`
 		}{
-			status: "ok",
-			uri:    url,
+			Status: "ok",
+			Uri:    url,
 		})
 		log.Printf("Uploaded image to %s\n", url)
 	}
@@ -142,7 +142,12 @@ func Copy(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
 
 func setupS3() *s3.S3 {
 	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		Profile: "profile_name",
+		Config: aws.Config{
+			Region: aws.String("us-east-2"),
+			CredentialsChainVerboseErrors: aws.Bool(true),
+			//Credentials: credentials.NewSharedCredentials()
+		},
+		Profile: "pottery-log-server",
 	}))
 	return s3.New(sess)
 }
