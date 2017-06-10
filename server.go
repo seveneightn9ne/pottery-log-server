@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -47,6 +48,7 @@ func handleErr(err error, w http.ResponseWriter) bool {
 }
 
 const bucketName = "pottery-log"
+const pfx = "/pottery-log-images/"
 
 func Upload(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
@@ -77,7 +79,7 @@ func Upload(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
 			CacheControl: aws.String("max-age=31556926"), // cachable forever
 			ContentType:  aws.String(imageFileHeader.Header.Get("Content-Type")),
 			Expires:      aws.Time(time.Now().Add(time.Hour * 24 * 365)),
-			StorageClass: aws.String("STANDARD_IA"), // Infrequent Access
+			//StorageClass: aws.String("STANDARD_IA"), // Infrequent Access
 			//ContentDisposition: aws.String("ContentDisposition"),
 			//ContentEncoding:    aws.String("ContentEncoding"),
 			//ContentLanguage:    aws.String("ContentLanguage"),
@@ -119,17 +121,40 @@ func Upload(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
 	}
 }
 
-func Get(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
+func Delete(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		w.Write(okResponse())
-		log.Print("get")
+		uri := req.FormValue("uri")
+		if uri == "" {
+			handleErr(errors.New("Missing required field uri"), w)
+			return
+		}
+		parts := strings.Split(uri, "s3.amazonaws.com/")
+		if len(parts) != 2 {
+			handleErr(errors.New("Can't parse uri "+uri), w)
+			return
+		}
+		fileName := parts[1]
+
+		params := &s3.DeleteObjectInput{
+			Bucket: aws.String(bucketName),
+			Key:    aws.String(fileName),
+		}
+		_, err := svc.DeleteObject(params)
+		if awserr, ok := err.(awserr.Error); err != nil && ok {
+			log.Printf("AWS Error: %+v\n", awserr)
+		}
+		if handleErr(err, w) {
+			return
+		}
+		w.WriteHeader(200)
+		log.Printf("Deleted image %s\n", fileName)
 	}
 }
 
-func Delete(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
+func Get(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		w.Write(okResponse())
-		log.Printf("Delete request to ")
+		log.Printf("Get request to ")
 	}
 }
 
@@ -158,7 +183,6 @@ func main() {
 	serveStr := fmt.Sprintf(":%v", *port)
 	log.Printf("Serving at localhost%v", serveStr)
 	svc := setupS3()
-	pfx := "/pottery-log-images/"
 	http.HandleFunc(pfx+"upload", Upload(svc))
 	http.HandleFunc(pfx+"get", Get(svc))
 	http.HandleFunc(pfx+"delete", Delete(svc))
