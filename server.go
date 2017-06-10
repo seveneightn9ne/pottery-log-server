@@ -160,6 +160,8 @@ func Get(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
 
 func Copy(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
+		// NOTE TO SELF. It's impossible to reference count if you aren't intercepting
+		// get requests. So why do you want to implement copy?
 		w.Write(okResponse())
 		log.Print("copy")
 	}
