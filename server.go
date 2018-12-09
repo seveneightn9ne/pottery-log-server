@@ -91,7 +91,7 @@ func Delete(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	w.WriteHeader(200)
+	w.Write(okResponse())
 	log.Printf("Deleted image %s\n", fileName)
 }
 
