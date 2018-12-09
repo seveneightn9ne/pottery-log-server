@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	"archive/zip"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -9,19 +9,15 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
-
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 func okResponse() []byte {
-	return []byte("{status: \"ok\"}")
+	return []byte("{\"status\": \"ok\"}")
 }
-func writeJson(w http.ResponseWriter, obj interface{}) {
+func writeJSON(w http.ResponseWriter, obj interface{}) {
 	respStr, err := json.Marshal(obj)
 	if err != nil {
 		log.Printf("Error during JSON marshal: %v\n", err)
@@ -33,161 +29,229 @@ func writeJson(w http.ResponseWriter, obj interface{}) {
 // true if there was an error that we handled
 func handleErr(err error, w http.ResponseWriter) bool {
 	if err != nil {
-		log.Printf("Error: %v", err.Error())
+		log.Printf("Error: %v\n", err.Error())
 		w.WriteHeader(500)
-		writeJson(w, struct {
-			status  string
-			message string
+		writeJSON(w, struct {
+			Status  string `json:"status"`
+			Message string `json:"message"`
 		}{
-			status:  "error",
-			message: err.Error(),
+			Status:  "error",
+			Message: err.Error(),
 		})
 		return true
 	}
 	return false
 }
 
-const bucketName = "pottery-log"
-const pfx = "/pottery-log-images/"
-
-func Upload(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		deviceId := req.FormValue("deviceId")
-		if deviceId == "" {
-			handleErr(errors.New("Missing required field deviceId"), w)
-			return
-		}
-		imageFile, imageFileHeader, err := req.FormFile("image")
-		if imageFile == nil {
-			handleErr(errors.New("Missing required field image"), w)
-			return
-		}
-		if handleErr(err, w) {
-			return
-		}
-		imageData, err := ioutil.ReadAll(imageFile)
-		if handleErr(err, w) {
-			return
-		}
-		fileName := fmt.Sprintf("%v/%v", deviceId, imageFileHeader.Filename)
-
-		params := &s3.PutObjectInput{
-			Bucket:       aws.String(bucketName), // Required
-			Key:          aws.String(fileName),   // Required
-			ACL:          aws.String("public-read"),
-			Body:         bytes.NewReader(imageData),
-			CacheControl: aws.String("max-age=31556926"), // cachable forever
-			ContentType:  aws.String(imageFileHeader.Header.Get("Content-Type")),
-			Expires:      aws.Time(time.Now().Add(time.Hour * 24 * 365)),
-			//StorageClass: aws.String("STANDARD_IA"), // Infrequent Access
-			//ContentDisposition: aws.String("ContentDisposition"),
-			//ContentEncoding:    aws.String("ContentEncoding"),
-			//ContentLanguage:    aws.String("ContentLanguage"),
-			//ContentLength:      aws.Int64(1),
-			//GrantFullControl:   aws.String("GrantFullControl"),
-			//GrantRead:          aws.String("GrantRead"),
-			//GrantReadACP:       aws.String("GrantReadACP"),
-			//GrantWriteACP:      aws.String("GrantWriteACP"),
-			//Metadata: map[string]*string{
-			//    "Key": aws.String("MetadataValue"), // Required
-			//    // More values...
-			//},
-			//RequestPayer:            aws.String("RequestPayer"),
-			//SSECustomerAlgorithm:    aws.String("SSECustomerAlgorithm"),
-			//SSECustomerKey:          aws.String("SSECustomerKey"),
-			//SSECustomerKeyMD5:       aws.String("SSECustomerKeyMD5"),
-			//SSEKMSKeyId:             aws.String("SSEKMSKeyId"),
-			//ServerSideEncryption:    aws.String("ServerSideEncryption"),
-			//Tagging:                 aws.String("TaggingHeader"),
-			//WebsiteRedirectLocation: aws.String("WebsiteRedirectLocation"),
-		}
-		_, err = svc.PutObject(params)
-		if awserr, ok := err.(awserr.Error); err != nil && ok {
-			log.Printf("AWS Error: %+v\n", awserr)
-		}
-		if handleErr(err, w) {
-			return
-		}
-
-		url := fmt.Sprintf("https://%s.s3.amazonaws.com/%s", bucketName, fileName)
-		writeJson(w, struct {
-			Status string `json:"status"`
-			Uri    string `json:"uri"`
-		}{
-			Status: "ok",
-			Uri:    url,
-		})
-		log.Printf("Uploaded image to %s\n", url)
+func Upload(w http.ResponseWriter, req *http.Request) {
+	deviceID := req.FormValue("deviceId")
+	if deviceID == "" {
+		handleErr(errors.New("Missing required field deviceId"), w)
+		return
 	}
+	imageFile, imageFileHeader, err := req.FormFile("image")
+	if imageFile == nil {
+		handleErr(errors.New("Missing required field image"), w)
+		return
+	}
+	if handleErr(err, w) {
+		return
+	}
+
+	url, err := uploadImage(imageFile, imageFileHeader, deviceID)
+	if handleErr(err, w) {
+		return
+	}
+
+	writeJSON(w, struct {
+		Status string `json:"status"`
+		URI    string `json:"uri"`
+	}{
+		Status: "ok",
+		URI:    url,
+	})
+	log.Printf("Uploaded image to %s\n", url)
 }
 
-func Delete(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		uri := req.FormValue("uri")
-		if uri == "" {
-			handleErr(errors.New("Missing required field uri"), w)
-			return
-		}
-		parts := strings.Split(uri, "s3.amazonaws.com/")
-		if len(parts) != 2 {
-			handleErr(errors.New("Can't parse uri "+uri), w)
-			return
-		}
-		fileName := parts[1]
-
-		params := &s3.DeleteObjectInput{
-			Bucket: aws.String(bucketName),
-			Key:    aws.String(fileName),
-		}
-		_, err := svc.DeleteObject(params)
-		if awserr, ok := err.(awserr.Error); err != nil && ok {
-			log.Printf("AWS Error: %+v\n", awserr)
-		}
-		if handleErr(err, w) {
-			return
-		}
-		w.WriteHeader(200)
-		log.Printf("Deleted image %s\n", fileName)
+func Delete(w http.ResponseWriter, req *http.Request) {
+	uri := req.FormValue("uri")
+	if uri == "" {
+		handleErr(errors.New("Missing required field uri"), w)
+		return
 	}
+	parts := strings.Split(uri, "s3.amazonaws.com/")
+	if len(parts) != 2 {
+		handleErr(errors.New("Can't parse uri "+uri), w)
+		return
+	}
+	fileName := parts[1]
+
+	err := deleteImage(fileName)
+	if handleErr(err, w) {
+		return
+	}
+
+	w.WriteHeader(200)
+	log.Printf("Deleted image %s\n", fileName)
 }
 
-func Get(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		w.Write(okResponse())
-		log.Printf("Get request to ")
+func StartExport(w http.ResponseWriter, req *http.Request) {
+	deviceID := req.FormValue("deviceId")
+	metadata := req.FormValue("metadata")
+	if deviceID == "" || metadata == "" {
+		handleErr(errors.New("Missing required field"), w)
+		return
 	}
+
+	err := exps.Start(deviceID, metadata)
+	if handleErr(err, w) {
+		return
+	}
+
+	w.Write(okResponse())
 }
 
-func Copy(svc *s3.S3) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		// NOTE TO SELF. It's impossible to reference count if you aren't intercepting
-		// get requests. So why do you want to implement copy?
-		w.Write(okResponse())
-		log.Print("copy")
+func FinishExport(w http.ResponseWriter, req *http.Request) {
+	deviceID := req.FormValue("deviceId")
+	if deviceID == "" {
+		handleErr(errors.New("Missing required field"), w)
+		return
 	}
+	exp := exps.Get(deviceID)
+	if exp == nil {
+		handleErr(errors.New("There is no export"), w)
+		return
+	}
+
+	exps.Remove(deviceID)
+
+	zipFile, err := exp.Finish()
+	if handleErr(err, w) {
+		return
+	}
+	defer zipFile.Close()
+
+	fileName := "pottery_log_export_" + time.Now().Format("2006_01_02") + ".zip"
+	uri, err := uploadFile(importBucketName, zipFile, fileName, "application/zip", deviceID)
+
+	if handleErr(err, w) {
+		return
+	}
+
+	writeJSON(w, struct {
+		Status string `json:"status"`
+		URI    string `json:"uri"`
+	}{
+		Status: "ok",
+		URI:    uri,
+	})
+
+	log.Printf("Finished the export for device %s available at %s.\n", deviceID, uri)
 }
 
-func setupS3() *s3.S3 {
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		Config: aws.Config{
-			Region: aws.String("us-east-2"),
-			CredentialsChainVerboseErrors: aws.Bool(true),
-			//Credentials: credentials.NewSharedCredentials()
-		},
-		Profile: "pottery-log-server",
-	}))
-	return s3.New(sess)
+func ExportImage(w http.ResponseWriter, req *http.Request) {
+	deviceID := req.FormValue("deviceId")
+	imageFile, imageFileHeader, err := req.FormFile("image")
+	if handleErr(err, w) {
+		return
+	}
+	if deviceID == "" || imageFile == nil {
+		handleErr(errors.New("Missing required field"), w)
+		return
+	}
+
+	exp := exps.Get(deviceID)
+	if exp == nil {
+		handleErr(errors.New("There is no export"), w)
+		return
+	}
+
+	err = exp.AddImage(imageFile, imageFileHeader)
+	if handleErr(err, w) {
+		return
+	}
+
+	w.Write(okResponse())
+	log.Printf("Exported an image for device %s.\n", deviceID)
+}
+
+func Import(w http.ResponseWriter, req *http.Request) {
+	deviceID := req.FormValue("deviceId")
+	zipFile, zipFileHeader, err := req.FormFile("import")
+	if handleErr(err, w) {
+		return
+	}
+	if deviceID == "" || zipFile == nil {
+		handleErr(errors.New("Missing required field"), w)
+		return
+	}
+	defer zipFile.Close()
+
+	r, err := zip.NewReader(zipFile, zipFileHeader.Size)
+	if handleErr(err, w) {
+		return
+	}
+	/*
+		importName := deviceId
+		parts := strings.Split(zipFileHeader.Filename, ".")
+		if len(parts) == 2 {
+			importName = parts[0]
+		}
+		fileName := importName + ""
+	*/
+	imageMap := make(map[string]string)
+	var metadata []byte
+	for _, f := range r.File {
+		if f.Name == metadataFileName {
+			metadataFile, err := f.Open()
+			if handleErr(err, w) {
+				return
+			}
+			metadata, err = ioutil.ReadAll(metadataFile)
+			if handleErr(err, w) {
+				return
+			}
+		} else {
+			// Image file
+			uri, err := uploadImportedImage(f, deviceID)
+			if handleErr(err, w) {
+				return
+			}
+			imageMap[f.Name] = uri
+		}
+	}
+
+	if metadata == nil {
+		handleErr(errors.New("No "+metadataFileName+" found in the zip file"), w)
+		return
+	}
+
+	writeJSON(w, struct {
+		Status   string            `json:"status"`
+		Metadata string            `json:"metadata"`
+		ImageMap map[string]string `json:"image_map"`
+	}{
+		Status:   "ok",
+		Metadata: string(metadata),
+		ImageMap: imageMap,
+	})
+	log.Printf("Imported %s for device %s.\n", zipFileHeader.Filename, deviceID)
 }
 
 func main() {
-	port := flag.Int("port", 9000, "port to listen on")
+	port := flag.Int("port", 9292, "port to listen on")
 	flag.Parse()
+	os.MkdirAll("/tmp/pottery-log-exports", 0777)
 	serveStr := fmt.Sprintf(":%v", *port)
 	log.Printf("Serving at localhost%v", serveStr)
-	svc := setupS3()
-	http.HandleFunc(pfx+"upload", Upload(svc))
-	http.HandleFunc(pfx+"get", Get(svc))
-	http.HandleFunc(pfx+"delete", Delete(svc))
-	http.HandleFunc(pfx+"copy", Copy(svc))
+
+	http.HandleFunc("/pottery-log-images/upload", Upload)
+	http.HandleFunc("/pottery-log-images/delete", Delete)
+
+	http.HandleFunc("/pottery-log/export", StartExport)
+	http.HandleFunc("/pottery-log/export-image", ExportImage)
+	http.HandleFunc("/pottery-log/finish-export", FinishExport)
+	http.HandleFunc("/pottery-log/import", Import)
+
 	log.Fatal(http.ListenAndServe(serveStr, nil))
 }
