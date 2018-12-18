@@ -27,9 +27,10 @@ func writeJSON(w http.ResponseWriter, obj interface{}) {
 }
 
 // true if there was an error that we handled
-func handleErr(err error, w http.ResponseWriter) bool {
+func handleErr(err error, deviceID string, w http.ResponseWriter) bool {
 	if err != nil {
 		log.Printf("Error: %v\n", err.Error())
+		logEvent("server-error", deviceID, "message", err.Error())
 		w.WriteHeader(500)
 		writeJSON(w, struct {
 			Status  string `json:"status"`
@@ -46,20 +47,20 @@ func handleErr(err error, w http.ResponseWriter) bool {
 func Upload(w http.ResponseWriter, req *http.Request) {
 	deviceID := req.FormValue("deviceId")
 	if deviceID == "" {
-		handleErr(errors.New("Missing required field deviceId"), w)
+		handleErr(errors.New("Missing required field deviceId"), deviceID, w)
 		return
 	}
 	imageFile, imageFileHeader, err := req.FormFile("image")
 	if imageFile == nil {
-		handleErr(errors.New("Missing required field image"), w)
+		handleErr(errors.New("Missing required field image"), deviceID, w)
 		return
 	}
-	if handleErr(err, w) {
+	if handleErr(err, deviceID, w) {
 		return
 	}
 
 	url, err := uploadImage(imageFile, imageFileHeader, deviceID)
-	if handleErr(err, w) {
+	if handleErr(err, deviceID, w) {
 		return
 	}
 
@@ -70,27 +71,29 @@ func Upload(w http.ResponseWriter, req *http.Request) {
 		Status: "ok",
 		URI:    url,
 	})
+	logEvent("server-upload", deviceID)
 	log.Printf("Uploaded image to %s\n", url)
 }
 
 func Delete(w http.ResponseWriter, req *http.Request) {
 	uri := req.FormValue("uri")
 	if uri == "" {
-		handleErr(errors.New("Missing required field uri"), w)
+		handleErr(errors.New("Missing required field uri"), "", w)
 		return
 	}
 	parts := strings.Split(uri, "s3.amazonaws.com/")
 	if len(parts) != 2 {
-		handleErr(errors.New("Can't parse uri "+uri), w)
+		handleErr(errors.New("Can't parse uri "+uri), "", w)
 		return
 	}
 	fileName := parts[1]
 
 	err := deleteImage(fileName)
-	if handleErr(err, w) {
+	if handleErr(err, "", w) {
 		return
 	}
 
+	logEvent("server-delete", "")
 	w.Write(okResponse())
 	log.Printf("Deleted image %s\n", fileName)
 }
@@ -99,34 +102,35 @@ func StartExport(w http.ResponseWriter, req *http.Request) {
 	deviceID := req.FormValue("deviceId")
 	metadata := req.FormValue("metadata")
 	if deviceID == "" || metadata == "" {
-		handleErr(errors.New("Missing required field"), w)
+		handleErr(errors.New("Missing required field"), deviceID, w)
 		return
 	}
 
 	err := exps.Start(deviceID, metadata)
-	if handleErr(err, w) {
+	if handleErr(err, deviceID, w) {
 		return
 	}
 
+	logEvent("server-start-export", deviceID)
 	w.Write(okResponse())
 }
 
 func FinishExport(w http.ResponseWriter, req *http.Request) {
 	deviceID := req.FormValue("deviceId")
 	if deviceID == "" {
-		handleErr(errors.New("Missing required field"), w)
+		handleErr(errors.New("Missing required field"), deviceID, w)
 		return
 	}
 	exp := exps.Get(deviceID)
 	if exp == nil {
-		handleErr(errors.New("There is no export"), w)
+		handleErr(errors.New("There is no export"), deviceID, w)
 		return
 	}
 
 	exps.Remove(deviceID)
 
 	zipFile, err := exp.Finish()
-	if handleErr(err, w) {
+	if handleErr(err, deviceID, w) {
 		return
 	}
 	defer zipFile.Close()
@@ -134,7 +138,7 @@ func FinishExport(w http.ResponseWriter, req *http.Request) {
 	fileName := "pottery_log_export_" + time.Now().Format("2006_01_02") + ".zip"
 	uri, err := uploadFile(importBucketName, zipFile, fileName, "application/zip", deviceID)
 
-	if handleErr(err, w) {
+	if handleErr(err, deviceID, w) {
 		return
 	}
 
@@ -146,75 +150,76 @@ func FinishExport(w http.ResponseWriter, req *http.Request) {
 		URI:    uri,
 	})
 
+	fileStat, err := zipFile.Stat()
+	if err == nil {
+		logEvent("server-finish-export", deviceID, "bytes", fileStat.Size())
+	} else {
+		logEvent("server-finish-export", deviceID)
+	}
+
 	log.Printf("Finished the export for device %s available at %s.\n", deviceID, uri)
 }
 
 func ExportImage(w http.ResponseWriter, req *http.Request) {
 	deviceID := req.FormValue("deviceId")
 	imageFile, imageFileHeader, err := req.FormFile("image")
-	if handleErr(err, w) {
+	if handleErr(err, deviceID, w) {
 		return
 	}
 	if deviceID == "" || imageFile == nil {
-		handleErr(errors.New("Missing required field"), w)
+		handleErr(errors.New("Missing required field"), deviceID, w)
 		return
 	}
 
 	exp := exps.Get(deviceID)
 	if exp == nil {
-		handleErr(errors.New("There is no export"), w)
+		handleErr(errors.New("There is no export"), deviceID, w)
 		return
 	}
 
 	err = exp.AddImage(imageFile, imageFileHeader)
-	if handleErr(err, w) {
+	if handleErr(err, deviceID, w) {
 		return
 	}
 
 	w.Write(okResponse())
+	logEvent("server-export-image", deviceID)
 	log.Printf("Exported an image for device %s.\n", deviceID)
 }
 
 func Import(w http.ResponseWriter, req *http.Request) {
 	deviceID := req.FormValue("deviceId")
 	zipFile, zipFileHeader, err := req.FormFile("import")
-	if handleErr(err, w) {
+	if handleErr(err, deviceID, w) {
 		return
 	}
 	if deviceID == "" || zipFile == nil {
-		handleErr(errors.New("Missing required field"), w)
+		handleErr(errors.New("Missing required field"), deviceID, w)
 		return
 	}
 	defer zipFile.Close()
 
 	r, err := zip.NewReader(zipFile, zipFileHeader.Size)
-	if handleErr(err, w) {
+	if handleErr(err, deviceID, w) {
 		return
 	}
-	/*
-		importName := deviceId
-		parts := strings.Split(zipFileHeader.Filename, ".")
-		if len(parts) == 2 {
-			importName = parts[0]
-		}
-		fileName := importName + ""
-	*/
+
 	imageMap := make(map[string]string)
 	var metadata []byte
 	for _, f := range r.File {
 		if f.Name == metadataFileName {
 			metadataFile, err := f.Open()
-			if handleErr(err, w) {
+			if handleErr(err, deviceID, w) {
 				return
 			}
 			metadata, err = ioutil.ReadAll(metadataFile)
-			if handleErr(err, w) {
+			if handleErr(err, deviceID, w) {
 				return
 			}
 		} else {
 			// Image file
 			uri, err := uploadImportedImage(f, deviceID)
-			if handleErr(err, w) {
+			if handleErr(err, deviceID, w) {
 				return
 			}
 			imageMap[f.Name] = uri
@@ -222,7 +227,7 @@ func Import(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if metadata == nil {
-		handleErr(errors.New("No "+metadataFileName+" found in the zip file"), w)
+		handleErr(errors.New("No "+metadataFileName+" found in the zip file"), deviceID, w)
 		return
 	}
 
@@ -235,13 +240,19 @@ func Import(w http.ResponseWriter, req *http.Request) {
 		Metadata: string(metadata),
 		ImageMap: imageMap,
 	})
+	logEvent("server-import", deviceID, "images", len(imageMap))
 	log.Printf("Imported %s for device %s.\n", zipFileHeader.Filename, deviceID)
 }
 
 func main() {
 	port := flag.Int("port", 9292, "port to listen on")
+	amplitudeAPIKey := flag.String("api_key", "", "Amplitude API key")
 	flag.Parse()
-	os.MkdirAll("/tmp/pottery-log-exports", 0777)
+
+	os.MkdirAll("/tmp/pottery-log-exports/metadata", 0777)
+
+	go sendToAmplitude(*amplitudeAPIKey)
+
 	serveStr := fmt.Sprintf(":%v", *port)
 	log.Printf("Serving at localhost%v", serveStr)
 
