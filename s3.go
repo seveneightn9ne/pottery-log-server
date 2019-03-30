@@ -3,12 +3,15 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
 const imageBucketName = "pottery-log"
@@ -33,6 +37,36 @@ func init() {
 		Profile: "pottery-log-server",
 	}))
 	svc = s3.New(sess)
+}
+
+func downloadImport(urlString string, localFile string) error {
+
+	s3url, err := url.Parse(urlString)
+	if err != nil {
+		return err
+	}
+	if s3url.Host != fmt.Sprintf("%s.s3.amazonaws.com", importBucketName) {
+		return errors.New("The link must be a Pottery Log export link")
+	}
+	log.Printf("Downloading %v to %v\n", urlString, localFile)
+	path := s3url.Path
+
+	downloader := s3manager.NewDownloaderWithClient(svc)
+
+	file, err := os.Create(localFile)
+	defer file.Close()
+	_, err = downloader.Download(file,
+		&s3.GetObjectInput{
+			Bucket: aws.String(importBucketName),
+			Key:    aws.String(path),
+		})
+	log.Println("Finished downloading file")
+
+	if awserr, ok := err.(awserr.Error); err != nil && ok {
+		log.Printf("AWS Error: %+v\n", awserr)
+	}
+
+	return err
 }
 
 func uploadImage(imageFile multipart.File, imageFileHeader *multipart.FileHeader, deviceID string) (string, error) {

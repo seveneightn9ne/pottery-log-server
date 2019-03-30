@@ -189,19 +189,42 @@ func ExportImage(w http.ResponseWriter, req *http.Request) {
 
 func Import(w http.ResponseWriter, req *http.Request) {
 	deviceID := req.FormValue("deviceId")
+	url := req.FormValue("importURL")
 	zipFile, zipFileHeader, err := req.FormFile("import")
-	if handleErr(err, deviceID, w) {
+	if url == "" && handleErr(err, deviceID, w) {
 		return
 	}
-	if deviceID == "" || zipFile == nil {
+	if deviceID == "" || (url == "" && zipFile == nil) {
 		handleErr(errors.New("Missing required field"), deviceID, w)
 		return
 	}
-	defer zipFile.Close()
+	var r *zip.Reader
+	// Both branches assign `r`
+	if url != "" {
+		// Download from URL
+		localFile := "/tmp/pottery-log-exports/import-" + deviceID + ".zip"
+		err := downloadImport(url, localFile)
+		if handleErr(err, deviceID, w) {
+			log.Println("Error in downloadImport")
+			return
+		}
+		// TODO defer delete the file
+		rc, err := zip.OpenReader(localFile)
+		if handleErr(err, deviceID, w) {
+			log.Println("Error in zip.OpenReader")
+			return
+		}
+		r = &rc.Reader
+		defer rc.Close()
+	} else {
+		// Zip file was uploaded
+		defer zipFile.Close()
 
-	r, err := zip.NewReader(zipFile, zipFileHeader.Size)
-	if handleErr(err, deviceID, w) {
-		return
+		r, err = zip.NewReader(zipFile, zipFileHeader.Size)
+		if handleErr(err, deviceID, w) {
+			log.Println("Error in zip.NewReader")
+			return
+		}
 	}
 
 	imageMap := make(map[string]string)
@@ -210,16 +233,20 @@ func Import(w http.ResponseWriter, req *http.Request) {
 		if f.Name == metadataFileName {
 			metadataFile, err := f.Open()
 			if handleErr(err, deviceID, w) {
+				log.Println("Error in opening the metadata file")
 				return
 			}
 			metadata, err = ioutil.ReadAll(metadataFile)
 			if handleErr(err, deviceID, w) {
+				log.Println("Error in reading the metadata file")
 				return
 			}
 		} else {
 			// Image file
+			log.Printf("uploading image file %v\n", f.FileHeader.Name)
 			uri, err := uploadImportedImage(f, deviceID)
 			if handleErr(err, deviceID, w) {
+				log.Printf("Error uploading image %v\n", f.FileHeader.Name)
 				return
 			}
 			imageMap[f.Name] = uri
@@ -241,7 +268,7 @@ func Import(w http.ResponseWriter, req *http.Request) {
 		ImageMap: imageMap,
 	})
 	logEvent("server-import", deviceID, "images", len(imageMap))
-	log.Printf("Imported %s for device %s.\n", zipFileHeader.Filename, deviceID)
+	log.Printf("Imported for device %s.\n", deviceID)
 }
 
 func main() {
