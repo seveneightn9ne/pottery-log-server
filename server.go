@@ -278,8 +278,9 @@ func Debug(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	data := req.FormValue("data")
+	name := req.FormValue("name")
 	ts := time.Now().Unix()
-	filename := fmt.Sprintf("/tmp/pottery-log/%s-%d.log", deviceID, ts)
+	filename := fmt.Sprintf("/tmp/pottery-log/%s-%d-%s.log", deviceID, ts, name)
 
 	// Truncates if the file exists
 	file, err := os.Create(filename)
