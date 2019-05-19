@@ -271,12 +271,38 @@ func Import(w http.ResponseWriter, req *http.Request) {
 	log.Printf("Imported for device %s.\n", deviceID)
 }
 
+func Debug(w http.ResponseWriter, req *http.Request) {
+	deviceID := req.FormValue("deviceId")
+	if deviceID == "" {
+		handleErr(errors.New("Missing required field"), deviceID, w)
+		return
+	}
+	data := req.FormValue("data")
+	ts := time.Now().Unix()
+	filename := fmt.Sprintf("/tmp/pottery-log/%s-%d.log", deviceID, ts)
+
+	// Truncates if the file exists
+	file, err := os.Create(filename)
+	if handleErr(err, deviceID, w) {
+		return
+	}
+	defer file.Close()
+
+	_, err = file.Write([]byte(data))
+	if handleErr(err, deviceID, w) {
+		return
+	}
+	w.Write(okResponse())
+	log.Printf("Saved debug data for %s.\n", deviceID)
+}
+
 func main() {
 	port := flag.Int("port", 9292, "port to listen on")
 	amplitudeAPIKey := flag.String("api_key", "", "Amplitude API key")
 	flag.Parse()
 
 	os.MkdirAll("/tmp/pottery-log-exports/metadata", 0777)
+	os.MkdirAll("/tmp/pottery-log", 0777)
 
 	go sendToAmplitude(*amplitudeAPIKey)
 
@@ -290,6 +316,7 @@ func main() {
 	http.HandleFunc("/pottery-log/export-image", ExportImage)
 	http.HandleFunc("/pottery-log/finish-export", FinishExport)
 	http.HandleFunc("/pottery-log/import", Import)
+	http.HandleFunc("/pottery-log/debug", Debug)
 
 	log.Fatal(http.ListenAndServe(serveStr, nil))
 }
