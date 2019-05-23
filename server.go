@@ -279,8 +279,12 @@ func Debug(w http.ResponseWriter, req *http.Request) {
 	}
 	data := req.FormValue("data")
 	name := req.FormValue("name")
+	appOwnership := req.FormValue("appOwnership")
+	if appOwnership == "" {
+		appOwnership = "none"
+	}
 	ts := time.Now().Unix()
-	filename := fmt.Sprintf("/tmp/pottery-log/%s-%d-%s.log", deviceID, ts, name)
+	filename := fmt.Sprintf("/tmp/pottery-log/%s-%s-%d-%s.log", appOwnership, deviceID, ts, name)
 
 	// Truncates if the file exists
 	file, err := os.Create(filename)
