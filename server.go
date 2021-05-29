@@ -101,12 +101,16 @@ func Delete(w http.ResponseWriter, req *http.Request) {
 func StartExport(w http.ResponseWriter, req *http.Request) {
 	deviceID := req.FormValue("deviceId")
 	metadata := req.FormValue("metadata")
-	if deviceID == "" || metadata == "" {
-		handleErr(errors.New("Missing required field"), deviceID, w)
+	if deviceID == "" {
+		handleErr(errors.New("Missing required field deviceId"), deviceID, w)
+		return
+	}
+	if metadata == "" {
+		handleErr(errors.New("Missing required field metadata"), deviceID, w)
 		return
 	}
 
-	err := exps.Start(deviceID, metadata)
+	err = exps.Start(deviceID, metadata)
 	if handleErr(err, deviceID, w) {
 		return
 	}
