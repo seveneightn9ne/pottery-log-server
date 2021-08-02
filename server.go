@@ -110,7 +110,7 @@ func StartExport(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	err = exps.Start(deviceID, metadata)
+	err := exps.Start(deviceID, metadata)
 	if handleErr(err, deviceID, w) {
 		return
 	}
@@ -206,7 +206,8 @@ func Import(w http.ResponseWriter, req *http.Request) {
 	// Both branches assign `r`
 	if url != "" {
 		// Download from URL
-		localFile := "/tmp/pottery-log-exports/import-" + deviceID + ".zip"
+		timeMS := int64(time.Nanosecond) * time.Now().UnixNano() / int64(time.Millisecond)
+		localFile := fmt.Sprintf("/tmp/pottery-log-exports/import-%s-%d.zip", deviceID, timeMS)
 		err := downloadImport(url, localFile)
 		if handleErr(err, deviceID, w) {
 			log.Println("Error in downloadImport")

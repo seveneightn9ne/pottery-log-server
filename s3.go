@@ -76,18 +76,27 @@ func uploadImage(imageFile multipart.File, imageFileHeader *multipart.FileHeader
 func uploadImportedImage(imageFile *zip.File, deviceID string) (string, error) {
 	imageReader, err := imageFile.Open()
 	if err != nil {
+		log.Print("Error opening image file")
 		return "", err
 	}
 	return uploadFile(importBucketName, imageReader, imageFile.Name, imageFile.Comment, deviceID)
 }
 
 func uploadFile(bucketName string, file io.Reader, fileName, contentType, deviceID string) (string, error) {
+
+	fullFileName := fmt.Sprintf("%v/%v", deviceID, fileName)
+	if objectExists(bucketName, fullFileName) {
+		fmt.Printf("Image %s already in s3\n", fullFileName)
+		return objectUrl(bucketName, fullFileName), nil
+	}
+
 	var reader io.ReadSeeker
 	if fr, ok := file.(io.ReadSeeker); ok {
 		reader = fr
 	} else {
 		data, err := ioutil.ReadAll(file)
 		if err != nil {
+			log.Print("Cannot read the file into memory\n")
 			return "", err
 		}
 		if !strings.HasPrefix(contentType, "image/") {
@@ -96,7 +105,6 @@ func uploadFile(bucketName string, file io.Reader, fileName, contentType, device
 		reader = bytes.NewReader(data)
 	}
 
-	fullFileName := fmt.Sprintf("%v/%v", deviceID, fileName)
 
 	params := &s3.PutObjectInput{
 		Bucket:       aws.String(bucketName),   // Required
@@ -112,11 +120,11 @@ func uploadFile(bucketName string, file io.Reader, fileName, contentType, device
 		log.Printf("AWS Error: %+v\n", awserr)
 	}
 	if err != nil {
+		log.Print("Non-AWS error from svc.PutObject\n")
 		return "", err
 	}
 
-	url := fmt.Sprintf("https://%s.s3.amazonaws.com/%s", bucketName, fullFileName)
-	return url, nil
+	return objectUrl(bucketName, fullFileName), nil
 }
 
 func deleteImage(fileName string) error {
@@ -129,4 +137,17 @@ func deleteImage(fileName string) error {
 		log.Printf("AWS Error: %+v\n", awserr)
 	}
 	return err
+}
+
+func objectExists(bucketName, fileName string) bool {
+	params := &s3.HeadObjectInput{
+		Bucket: aws.String(bucketName),
+		Key: aws.String(fileName),
+	}
+	_, err := svc.HeadObject(params)
+	return err == nil
+}
+
+func objectUrl(bucketName, fileName string) string {
+	return fmt.Sprintf("https://%s.s3.amazonaws.com/%s", bucketName, fileName)
 }
