@@ -140,7 +140,7 @@ func FinishExport(w http.ResponseWriter, req *http.Request) {
 	defer zipFile.Close()
 
 	fileName := "pottery_log_export_" + time.Now().Format("2006_01_02") + ".zip"
-	uri, err := uploadFile(importBucketName, zipFile, fileName, "application/zip", deviceID)
+	uri, err := uploadMultipart(importBucketName, zipFile, fileName, "application/zip", deviceID)
 
 	if handleErr(err, deviceID, w) {
 		return
