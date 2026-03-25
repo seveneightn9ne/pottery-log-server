@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -44,10 +45,23 @@ func handleErr(err error, deviceID string, w http.ResponseWriter) bool {
 	return false
 }
 
+var deviceIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]*$`)
+
+func validateDeviceId(deviceID string) error {
+	if !deviceIDRegex.MatchString(deviceID) {
+		return errors.New("deviceId contains invalid characters")
+	}
+	return nil
+}
+
 func Upload(w http.ResponseWriter, req *http.Request) {
 	deviceID := req.FormValue("deviceId")
 	if deviceID == "" {
 		handleErr(errors.New("Missing required field deviceId"), deviceID, w)
+		return
+	}
+	err := validateDeviceId(deviceID)
+	if handleErr(err, deviceID, w) {
 		return
 	}
 	imageFile, imageFileHeader, err := req.FormFile("image")
@@ -105,12 +119,16 @@ func StartExport(w http.ResponseWriter, req *http.Request) {
 		handleErr(errors.New("Missing required field deviceId"), deviceID, w)
 		return
 	}
+	err := validateDeviceId(deviceID)
+	if handleErr(err, deviceID, w) {
+		return
+	}
 	if metadata == "" {
 		handleErr(errors.New("Missing required field metadata"), deviceID, w)
 		return
 	}
 
-	err := exps.Start(deviceID, metadata)
+	err = exps.Start(deviceID, metadata)
 	if handleErr(err, deviceID, w) {
 		return
 	}
@@ -123,6 +141,10 @@ func FinishExport(w http.ResponseWriter, req *http.Request) {
 	deviceID := req.FormValue("deviceId")
 	if deviceID == "" {
 		handleErr(errors.New("Missing required field"), deviceID, w)
+		return
+	}
+	err := validateDeviceId(deviceID)
+	if handleErr(err, deviceID, w) {
 		return
 	}
 	exp := exps.Get(deviceID)
@@ -174,6 +196,10 @@ func ExportImage(w http.ResponseWriter, req *http.Request) {
 		handleErr(errors.New("Missing required field"), deviceID, w)
 		return
 	}
+	err = validateDeviceId(deviceID)
+	if handleErr(err, deviceID, w) {
+		return
+	}
 
 	exp := exps.Get(deviceID)
 	if exp == nil {
@@ -200,6 +226,10 @@ func Import(w http.ResponseWriter, req *http.Request) {
 	}
 	if deviceID == "" || (url == "" && zipFile == nil) {
 		handleErr(errors.New("Missing required field"), deviceID, w)
+		return
+	}
+	err = validateDeviceId(deviceID)
+	if handleErr(err, deviceID, w) {
 		return
 	}
 	var r *zip.Reader
@@ -282,6 +312,15 @@ func Debug(w http.ResponseWriter, req *http.Request) {
 		handleErr(errors.New("Missing required field"), deviceID, w)
 		return
 	}
+	err := validateDeviceId(deviceID)
+	if handleErr(err, deviceID, w) {
+		return
+	}
+	// This method in insecure, so don't do it.
+	w.Write(okResponse())
+	log.Printf("Skipped Debug endpoint")
+	return
+
 	data := req.FormValue("data")
 	name := req.FormValue("name")
 	appOwnership := req.FormValue("appOwnership")

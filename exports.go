@@ -66,7 +66,8 @@ func NewExport(deviceID, metadata string) (*export, error) {
 	location := "/tmp/pottery-log-exports/" + deviceID + ".zip"
 	log.Printf("Starting export at %v\n", location)
 
-	saveMetadataFile(metadata, deviceID)
+	// this was used for debugging
+	// saveMetadataFile(metadata, deviceID)
 
 	// Truncates if the file exists
 	file, err := os.Create(location)
@@ -140,20 +141,20 @@ func (e *export) Finish() (*os.File, error) {
 	return e.f, nil
 }
 
-func saveMetadataFile(metadata, deviceID string) error {
-	location := "/tmp/pottery-log-exports/metadata/" + deviceID + ".json"
+// func saveMetadataFile(metadata, deviceID string) error {
+// 	location := "/tmp/pottery-log-exports/metadata/" + deviceID + ".json"
 
-	// Truncates if the file exists
-	file, err := os.Create(location)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
+// 	// Truncates if the file exists
+// 	file, err := os.Create(location)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer file.Close()
 
-	_, err = file.Write([]byte(metadata))
-	if err != nil {
-		return err
-	}
+// 	_, err = file.Write([]byte(metadata))
+// 	if err != nil {
+// 		return err
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
