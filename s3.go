@@ -34,7 +34,7 @@ func init() {
 			CredentialsChainVerboseErrors: aws.Bool(true),
 			//Credentials: credentials.NewSharedCredentials()
 		},
-		Profile: "pottery-log-server",
+		// Profile: "pottery-log-server", // only for use with credentials in ~/.aws
 	}))
 	svc = s3.New(sess)
 }
@@ -105,7 +105,6 @@ func uploadFile(bucketName string, file io.Reader, fileName, contentType, device
 		reader = bytes.NewReader(data)
 	}
 
-
 	params := &s3.PutObjectInput{
 		// Params copied to uploadMultipart CreateMultipartUpload
 		Bucket:       aws.String(bucketName),   // Required
@@ -129,7 +128,7 @@ func uploadFile(bucketName string, file io.Reader, fileName, contentType, device
 }
 
 const MIN_MULTIPART_SIZE = 1_000_000_000 // 1GB
-const PART_SIZE = 500_000_000 // 500 MB
+const PART_SIZE = 500_000_000            // 500 MB
 
 func uploadMultipart(bucketName string, file *os.File, fileName, contentType, deviceID string) (string, error) {
 
@@ -181,11 +180,11 @@ func uploadMultipart(bucketName string, file *os.File, fileName, contentType, de
 			continue
 		}
 		partResp, err := svc.UploadPart(&s3.UploadPartInput{
-			Body: bytes.NewReader(partBytes[:n]),
-			Bucket: upl.Bucket,
-			Key: upl.Key,
-			PartNumber: aws.Int64(int64(partNum)),
-			UploadId: upl.UploadId,
+			Body:          bytes.NewReader(partBytes[:n]),
+			Bucket:        upl.Bucket,
+			Key:           upl.Key,
+			PartNumber:    aws.Int64(int64(partNum)),
+			UploadId:      upl.UploadId,
 			ContentLength: aws.Int64(int64(n)),
 		})
 		if awserr, ok := err.(awserr.Error); err != nil && ok {
@@ -196,7 +195,7 @@ func uploadMultipart(bucketName string, file *os.File, fileName, contentType, de
 			return "", err
 		}
 		completedParts = append(completedParts, &s3.CompletedPart{
-			ETag: partResp.ETag,
+			ETag:       partResp.ETag,
 			PartNumber: aws.Int64(int64(partNum)),
 		})
 		partNum++
@@ -204,8 +203,8 @@ func uploadMultipart(bucketName string, file *os.File, fileName, contentType, de
 
 	// Complete upload
 	_, err = svc.CompleteMultipartUpload(&s3.CompleteMultipartUploadInput{
-		Bucket: upl.Bucket,
-		Key: upl.Key,
+		Bucket:   upl.Bucket,
+		Key:      upl.Key,
 		UploadId: upl.UploadId,
 		MultipartUpload: &s3.CompletedMultipartUpload{
 			Parts: completedParts,
@@ -223,14 +222,14 @@ func uploadMultipart(bucketName string, file *os.File, fileName, contentType, de
 
 func abortMultipartUpload(upl *s3.CreateMultipartUploadOutput) {
 	_, err := svc.AbortMultipartUpload(&s3.AbortMultipartUploadInput{
-		Bucket: upl.Bucket,
-		Key: upl.Key,
+		Bucket:   upl.Bucket,
+		Key:      upl.Key,
 		UploadId: upl.UploadId,
 	})
 	if awserr, ok := err.(awserr.Error); err != nil && ok {
 		log.Printf("AbortMultipartUpload: AWS Error: %+v\n", awserr)
 	} else if err != nil {
-		log.Printf("AbortMultipartUpload: Error: %+v\n", err);
+		log.Printf("AbortMultipartUpload: Error: %+v\n", err)
 	}
 }
 
@@ -249,7 +248,7 @@ func deleteImage(fileName string) error {
 func objectExists(bucketName, fileName string) bool {
 	params := &s3.HeadObjectInput{
 		Bucket: aws.String(bucketName),
-		Key: aws.String(fileName),
+		Key:    aws.String(fileName),
 	}
 	_, err := svc.HeadObject(params)
 	return err == nil

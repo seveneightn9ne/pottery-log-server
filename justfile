@@ -16,6 +16,11 @@ systemd-install: _on_server
     sudo systemctl restart pottery-log-server
     tail /opt/pottery-log-server/pottery-log-server.log
 
+test-remote:
+    xh POST https://jesskenney.com/pottery-log/export --form deviceId=test1234 metadata=pretend --resolve jesskenney.com:15.204.93.96
+    xh POST https://jesskenney.com/pottery-log/finish-export --form deviceId=test1234 --resolve jesskenney.com:15.204.93.96
+
+
 _on_server:
     @{{ if `hostname` != server_host { error("must run on server") } else { "" } }}
 
