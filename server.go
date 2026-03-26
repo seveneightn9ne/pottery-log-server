@@ -347,13 +347,13 @@ func Debug(w http.ResponseWriter, req *http.Request) {
 
 func main() {
 	port := flag.Int("port", 9292, "port to listen on")
-	amplitudeAPIKey := flag.String("api_key", "", "Amplitude API key")
 	flag.Parse()
 
 	os.MkdirAll("/tmp/pottery-log-exports/metadata", 0777)
 	os.MkdirAll("/tmp/pottery-log", 0777)
 
-	go sendToAmplitude(*amplitudeAPIKey)
+	amplitudeAPIKey := os.Getenv("AMPLITUDE_API_KEY")
+	go sendToAmplitude(amplitudeAPIKey)
 
 	serveStr := fmt.Sprintf(":%v", *port)
 	log.Printf("Serving at localhost%v", serveStr)

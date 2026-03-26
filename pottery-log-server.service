@@ -1,0 +1,15 @@
+[Unit]
+Description=Pottery log image uploader
+
+[Service]
+WorkingDirectory=/opt/pottery-log-server
+User=user
+EnvironmentFile=/opt/pottery-log-server/.env
+ExecStart=/bin/sh -c '/opt/pottery-log-server/pottery-log-server --port=9292 2>> pottery-log-server.log'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+# unit docs: https://www.man7.org/linux/man-pages/man5/systemd.service.5.html
