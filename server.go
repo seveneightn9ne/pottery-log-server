@@ -317,6 +317,7 @@ func Debug(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	// This method in insecure, so don't do it.
+	// If re-enabling it, also re-enable the MkdirAll for /tmp/pottery-log
 	w.Write(okResponse())
 	log.Printf("Skipped Debug endpoint")
 	return
@@ -350,7 +351,7 @@ func main() {
 	flag.Parse()
 
 	os.MkdirAll("/tmp/pottery-log-exports/metadata", 0777)
-	os.MkdirAll("/tmp/pottery-log", 0777)
+	// os.MkdirAll("/tmp/pottery-log", 0777)
 
 	amplitudeAPIKey := os.Getenv("AMPLITUDE_API_KEY")
 	go sendToAmplitude(amplitudeAPIKey)
